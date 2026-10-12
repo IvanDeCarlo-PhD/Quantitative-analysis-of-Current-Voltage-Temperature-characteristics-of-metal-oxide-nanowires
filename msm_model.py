@@ -1,3 +1,14 @@
+###############################################################################
+# Copyright (C) 2026 by
+# Ivan De Carlo
+# 
+# This work is licensed under a  
+# 
+# Creative Commons Attribution Non-Commercial 4.0 License
+# ( https://creativecommons.org/licenses/by-nc/4.0/ )
+# 
+#
+###############################################################################
 """Metal-semiconductor-metal (MSM) current-voltage model.
 
 This module implements the transport model used for two back-to-back
@@ -203,11 +214,10 @@ def _solve_contact_voltage(
         v_floor = 0.0
 
     elif transport == "TFE":
-        _, cosh_x = _tfe_energy_terms(phi_eV, E00_eV, T)
-        # Positive square-root argument requires
-        # V > xi - phi/cosh^2(E00/kBT), with phi and xi both in eV/V numerically.
-        v_phys_min = xi_eV - phi_eV / (cosh_x**2)
-        v_floor = max(0.0, float(v_phys_min))
+        # The TFE contribution vanishes below its square-root threshold, but
+        # the parallel shunt still conducts there. The contact voltage can
+        # therefore have a valid root anywhere from zero upwards.
+        v_floor = 0.0
 
         def f(v: float) -> float:
             return area * current_density_tfe(v, phi_eV, xi_eV, E00_eV, T, m_star) + v / Rsh - current_mag
@@ -259,10 +269,8 @@ def solve_point(
 
     if V_bias > 0:
         left_transport, right_transport = "TFE", "TE"
-        reverse_is_left = True
     else:
         left_transport, right_transport = "TE", "TFE"
-        reverse_is_left = False
 
     def v1_of(i_mag: float) -> float:
         return _solve_contact_voltage(
@@ -282,15 +290,6 @@ def solve_point(
 
     def circuit_residual(i_mag: float) -> float:
         return v1_of(i_mag) + v2_of(i_mag) + i_mag * Rnw - V_abs
-
-    # If the reverse branch is outside its physically valid TFE domain at
-    # zero current, treat the operating point as blocked and place the full
-    # voltage on that contact.
-    g0 = circuit_residual(0.0)
-    if np.isfinite(g0) and g0 > 0.0:
-        if reverse_is_left:
-            return V_abs, 0.0, 0.0
-        return 0.0, V_abs, 0.0
 
     a, b = _bracket_root(
         circuit_residual,
